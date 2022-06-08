@@ -217,7 +217,7 @@ def train_target(args):
 
     netF.train()
     oldC.train()
-    optimizer.zero_grad()
+
     while iter_num < max_iter:
         
         # comment this if on office-31
@@ -318,12 +318,11 @@ def train_target(args):
 
         msoftmax = softmax_out.mean(dim=0)
         im_div = torch.sum(msoftmax * torch.log(msoftmax + 1e-5))
-        loss += im_div
-        loss.backward()
+        loss += im_div  
 
-        if iter_num % args.optim_interval == 0 or iter_num == max_iter:
-            optimizer.step()
-            optimizer.zero_grad()
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
         if iter_num % interval_iter == 0 or iter_num == max_iter:
             netF.eval()
@@ -387,7 +386,7 @@ if __name__ == "__main__":
     parser.add_argument('--class_num', type=int, default=65)
     parser.add_argument('--K', type=int, default=4) # set to 2 on office-31 (or 3 on a2w)
     parser.add_argument('--KK', type=int, default=3) # set to 3 on office-31 (or 2 on a2w)
-    parser.add_argument('--optim_interval', type=int, default=1)
+    parser.add_argument('--alpha', type=float, default=0.5)
     parser.add_argument('--par', type=float, default=0.1)
     parser.add_argument('--bottleneck', type=int, default=256)
     parser.add_argument('--layer',
