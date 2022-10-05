@@ -1,3 +1,4 @@
 .idea
-office-home/data
-office-home/weight
+office-home/data/
+office-home/weight/
+__pycache__/
