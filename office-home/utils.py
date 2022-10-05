@@ -131,7 +131,7 @@ def image_target(resize_size=256, crop_size=224):
                                      std=[0.229, 0.224, 0.225])
     return transforms.Compose([
         transforms.Resize((resize_size, resize_size)),
-        transforms.RandomCrop(224),
+        transforms.RandomCrop(crop_size),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(), normalize
     ])
