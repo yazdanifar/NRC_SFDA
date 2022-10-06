@@ -1,4 +1,4 @@
 .idea
 office-home/weight/
 __pycache__/
-/office-home/data/office-home/
+/office-home/data/office-home/*
