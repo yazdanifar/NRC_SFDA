@@ -29,7 +29,6 @@ def init_weights(m):
             pass
 
 
-
 class feat_classifier(nn.Module):
     def __init__(self, class_num, bottleneck_dim=256, type="linear"):
         super(feat_classifier, self).__init__()
@@ -41,9 +40,8 @@ class feat_classifier(nn.Module):
         self.fc.apply(init_weights)
 
     def forward(self, x):
-        x = self.fc(x)  #/0.05
+        x = self.fc(x)  # /0.05
         return x
-
 
 
 class ResNet_FE(nn.Module):
@@ -72,3 +70,12 @@ class ResNet_FE(nn.Module):
         out = self.bn(self.bottle(out))
         return out
 
+
+class SourceQuantizer(nn.Module):
+    def __init__(self, source_num):
+        super(SourceQuantizer, self).__init__()
+        self.quantizer = nn.Linear(source_num, 1, bias=False)
+        self.quantizer.weight.data.fill_(1.)
+
+    def forward(self, domain_id):
+        return torch.softmax(self.quantizer(domain_id), dim=0)

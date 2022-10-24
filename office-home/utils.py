@@ -102,7 +102,37 @@ def cal_acc_(loader, netF, netC):
     return accuracy, mean_ent
 
 
+def cal_acc_multi(loader, netF_list, netC_list, netQ):
+    start_test = True
+    all_output = []
+    with torch.no_grad():
+        alpha = netQ(torch.eye(len(netC_list), device='cuda')).cpu()
+        iter_test = iter(loader)
+        for i in range(len(loader)):
+            data = iter_test.next()
+            inputs = data[0]
+            labels = data[1]
+            inputs = inputs.cuda()
+            if start_test:
+                all_label = labels.float()
+            else:
+                all_label = torch.cat((all_label, labels.float()), 0)
+            for model_id, (netC, netF) in enumerate(zip(netC_list, netF_list)):
+                output_f = netF.forward(inputs)  # a^t
+                outputs=nn.Softmax(dim=1)(netC(output_f))
+                if start_test:
+                    all_output.append(outputs.cpu())
+                else:
+                    all_output[model_id] = torch.cat([all_output[model_id], outputs.cpu()], 0)
 
+            start_test = False
+    all_output = torch.cat([o.unsqueeze(2) for o in all_output], 2)
+    aggregated = (alpha.view(1, 1, 3) * all_output).sum(2, keepdims=True)
+    all_output = torch.cat([all_output, aggregated], 2)
+    _, predict = torch.max(all_output, 1)
+    accuracies = (predict == all_label.unsqueeze(1)).sum(0) / len(all_label)
+    mean_ent = torch.mean(Entropy(all_output), 0)
+    return accuracies.detach(), mean_ent.detach()
 
 '''def image_train(resize_size=256, crop_size=224):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
