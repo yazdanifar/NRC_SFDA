@@ -299,7 +299,8 @@ def train_target(args, summary):
             netQ.eval()
             alpha = netQ(eye).detach().clone().cpu()
             for i, al in enumerate(alpha):
-                summary.add_scalar('Alpha {:d}'.format(i), al, iter_num)
+                m = args.source_domains[i].upper()
+                summary.add_scalar('Alpha {}'.format(m), al, iter_num)
             # noinspection DuplicatedCode
             accuracies, _ = cal_acc_multi(dset_loaders['test'], netF_list, oldC_list, netQ)
             for model_id, acc in enumerate(accuracies):
