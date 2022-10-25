@@ -1,6 +1,8 @@
 import argparse
 import os, sys
 
+from torch.utils.tensorboard import SummaryWriter
+
 sys.path.append('./')
 
 import os.path as osp
@@ -110,14 +112,15 @@ def office_load_idx(args):
     return dset_loaders
 
 
-def train_target(args):
+def train_target(args, summary):
     dset_loaders = office_load_idx(args)
     ## set base networks
     netF_list = []
     oldC_list = []
     param_list = []
-
-    for model_dir in args.source_dirs:
+    source_dirs = [osp.join(current_folder, args.output, 'seed' + str(args.seed), s + '2' + args.target)
+                   for s in args.source_domains]
+    for model_dir in source_dirs:
         netF = network.ResNet_FE().cuda()
         oldC = network.feat_classifier(type=args.layer,
                                        class_num=args.class_num,
@@ -153,23 +156,25 @@ def train_target(args):
         param_list += [{'params': v, 'lr': args.alpha_lr}]
     optimizer = optim.SGD(param_list, momentum=0.9, weight_decay=5e-4, nesterov=True)
     optimizer = op_copy(optimizer)
-    acc_init = 0
     loader = dset_loaders["target"]
     num_sample = len(loader.dataset)
 
     for netF, oldC in zip(netF_list, oldC_list):
         netF.eval()
         oldC.eval()
+        netQ.eval()
 
     with torch.no_grad():
         accuracies, _ = cal_acc_multi(dset_loaders["test"], netF_list, oldC_list, netQ)
     for model_id, acc in enumerate(accuracies):
-        log_str = 'Model:{}, Initial accuracy on target:{:.2f}%'.format(model_id, acc * 100)
+        model_name = args.source_domains[model_id].upper() if model_id < num_srcs else 'Agg'
+        log_str = 'Model:{}, Initial accuracy on target:{:.2f}%'.format(model_name, acc * 100)
         args.out_file.write(log_str + '\n')
         print(log_str)
+        summary.add_scalar('Model {} Accuracy'.format(model_name), acc * 100, 0)
     args.out_file.flush()
 
-    fea_banks = [torch.randn(num_sample, 256) for _ in range(3)]
+    fea_banks = [torch.randn(num_sample, 256) for _ in range(num_srcs)]
     score_bank = torch.randn(num_sample, args.class_num).cuda()
     with torch.no_grad():
         iter_test = iter(loader)
@@ -178,12 +183,12 @@ def train_target(args):
             inputs, _, indx = iter_test.next()
             inputs = inputs.cuda()
             agg_pred = None
+            alpha = netQ(eye)
             for model_id, (netF, oldC) in enumerate(zip(netF_list, oldC_list)):
                 output = netF.forward(inputs)
                 outputs = nn.Softmax(-1)(oldC(output))
                 fea_banks[model_id][indx] = F.normalize(output).detach().clone().cpu()
-                alpha = netQ(eye)[model_id].repeat(inputs.size(0), 1)
-                model_pred = alpha * outputs
+                model_pred = alpha[model_id].repeat(inputs.size(0), 1) * outputs
                 agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
             score_bank[indx] = agg_pred.detach().clone()
 
@@ -194,6 +199,7 @@ def train_target(args):
     for netF, oldC in zip(netF_list, oldC_list):
         netF.train()
         oldC.train()
+        netQ.train()
 
     while iter_num < max_iter:
 
@@ -219,18 +225,17 @@ def train_target(args):
 
         inputs_target = inputs_target.cuda()
         agg_pred = None
-        all_outputs = torch.randn(num_srcs, inputs_target.size(0), args.class_num).cuda()
         alpha = netQ(eye)
         for model_id, (netF, oldC) in enumerate(zip(netF_list, oldC_list)):
             features_test = netF(inputs_target)
             softmax_out = nn.Softmax(dim=1)(oldC(features_test))
-            # model_pred = alpha[model_id].repeat(inputs_target.size(0), 1) * softmax_out
-            all_outputs[model_id] = softmax_out
+            model_pred = alpha[model_id].repeat(inputs_target.size(0), 1) * softmax_out
+            agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
             fea_banks[model_id][tar_idx] = F.normalize(features_test).detach().clone().cpu()
-        # score_bank[tar_idx] = agg_pred.detach().clone()
+        score_bank[tar_idx] = agg_pred.detach().clone()
 
-        optimizer.zero_grad()
-        for model_id in range(1):
+        loss = torch.tensor(0.0).cuda()
+        for model_id in range(num_srcs):
             with torch.no_grad():
                 fea_bank = fea_banks[model_id]
                 output_f_ = fea_bank[tar_idx]
@@ -273,7 +278,7 @@ def train_target(args):
             output_re = agg_pred.unsqueeze(1).expand(-1, args.K * args.KK, -1)  # batch x KM x C
             const = torch.mean(
                 (F.kl_div(output_re, score_near_kk, reduction='none').sum(-1) * weight_kk.cuda()).sum(1))
-            loss = torch.mean(const)
+            loss += torch.mean(const)
 
             # nn
             pred_un = agg_pred.unsqueeze(1).expand(-1, args.K, -1)  # batch x K x C
@@ -283,26 +288,32 @@ def train_target(args):
             msoftmax = agg_pred.mean(dim=0)
             im_div = torch.sum(msoftmax * torch.log(msoftmax + 1e-5))
             loss += im_div
-            loss.backward()
-        optimizer.step()
 
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        summary.add_scalar('Total Loss', loss.detach().clone().cpu(), iter_num)
         if iter_num % interval_iter == 0 or iter_num == max_iter:
             for netF, oldC in zip(netF_list, oldC_list):
                 netF.eval()
                 oldC.eval()
+                netQ.eval()
 
             # noinspection DuplicatedCode
             accuracies, _ = cal_acc_multi(dset_loaders['test'], netF_list, oldC_list, netQ)
             for model_id, acc in enumerate(accuracies):
+                model_name = args.source_domains[model_id].upper() if model_id < num_srcs else 'Agg'
                 log_str = 'Iter:{}/{}; Model:{}, Accuracy on target:{:.2f}%'.format(
-                    args.target, iter_num, max_iter, model_id, acc * 100)
+                    iter_num, max_iter, model_name, acc * 100)
                 args.out_file.write(log_str + '\n')
                 print(log_str)
+                summary.add_scalar('Model {} Accuracy'.format(model_name), acc * 100, iter_num)
             args.out_file.flush()
 
             for netF, oldC in zip(netF_list, oldC_list):
-                netF.eval()
-                oldC.eval()
+                netF.train()
+                oldC.train()
+                netQ.train()
 
 
 if __name__ == "__main__":
@@ -373,13 +384,14 @@ if __name__ == "__main__":
 
     current_folder = "./"
     args.output_dir = osp.join(current_folder, args.output, 'seed' + str(args.seed), args.target)
-    args.source_dirs = [osp.join(current_folder, args.output, 'seed' + str(args.seed), s + '2' + args.target)
-                        for s in ['a', 'c', 'p', 'r'] if s != args.target]
+
+    args.source_domains = [s for s in ['a', 'c', 'p', 'r'] if s != args.target]
+
     if not osp.exists(args.output_dir):
         os.system('mkdir -p ' + args.output_dir)
     args.out_file = open(osp.join(args.output_dir, args.file + '.txt'), 'w')
     args.out_file.write(print_args(args) + '\n')
     args.out_file.flush()
-    # train_target(args)
-    # if args.file=='cluster':
-    train_target(args)
+    writer_dir = osp.join(current_folder, args.output, 'seed' + str(args.seed), args.target, 'logs')
+    summary = SummaryWriter(writer_dir)
+    train_target(args, summary)
