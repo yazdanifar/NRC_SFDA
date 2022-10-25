@@ -162,7 +162,7 @@ def train_target(args, summary):
     for netF, oldC in zip(netF_list, oldC_list):
         netF.eval()
         oldC.eval()
-        netQ.eval()
+    netQ.eval()
 
     with torch.no_grad():
         accuracies, _ = cal_acc_multi(dset_loaders["test"], netF_list, oldC_list, netQ)
@@ -199,7 +199,7 @@ def train_target(args, summary):
     for netF, oldC in zip(netF_list, oldC_list):
         netF.train()
         oldC.train()
-        netQ.train()
+    netQ.train()
 
     while iter_num < max_iter:
 
@@ -288,17 +288,18 @@ def train_target(args, summary):
             msoftmax = agg_pred.mean(dim=0)
             im_div = torch.sum(msoftmax * torch.log(msoftmax + 1e-5))
             loss += im_div
-
+        loss /= num_srcs
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        summary.add_scalar('Total Loss', loss.detach().clone().cpu(), iter_num)
         if iter_num % interval_iter == 0 or iter_num == max_iter:
             for netF, oldC in zip(netF_list, oldC_list):
                 netF.eval()
                 oldC.eval()
-                netQ.eval()
-
+            netQ.eval()
+            alpha = netQ(eye).detach().clone().cpu()
+            for i, al in enumerate(alpha):
+                summary.add_scalar('Alpha {:d}'.format(i), al, iter_num)
             # noinspection DuplicatedCode
             accuracies, _ = cal_acc_multi(dset_loaders['test'], netF_list, oldC_list, netQ)
             for model_id, acc in enumerate(accuracies):
@@ -313,7 +314,7 @@ def train_target(args, summary):
             for netF, oldC in zip(netF_list, oldC_list):
                 netF.train()
                 oldC.train()
-                netQ.train()
+            netQ.train()
 
 
 if __name__ == "__main__":
