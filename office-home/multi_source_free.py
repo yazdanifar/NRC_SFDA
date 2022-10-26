@@ -175,21 +175,20 @@ def train_target(args, summary):
     args.out_file.flush()
 
     fea_banks = [torch.randn(num_sample, 256) for _ in range(num_srcs)]
-    score_bank = torch.randn(num_sample, args.class_num).cuda()
+    score_bank = torch.randn(num_sample, args.class_num)
     with torch.no_grad():
         iter_test = iter(loader)
         eye = torch.eye(num_srcs, device='cuda')
         for i in range(len(loader)):
             inputs, _, indx = iter_test.next()
             inputs = inputs.cuda()
-            agg_pred = None
-            alpha = netQ(eye)
+            alpha = netQ(eye).cpu()
+            outputs_all = torch.randn(num_srcs, inputs.size(0), args.class_num)
             for model_id, (netF, oldC) in enumerate(zip(netF_list, oldC_list)):
                 output = netF.forward(inputs)
-                outputs = nn.Softmax(-1)(oldC(output))
                 fea_banks[model_id][indx] = F.normalize(output).detach().clone().cpu()
-                model_pred = alpha[model_id].repeat(inputs.size(0), 1) * outputs
-                agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
+                outputs_all[model_id] = nn.Softmax(-1)(oldC(output))
+            agg_pred = (alpha.unsqueeze(2) * outputs_all).sum(0)
             score_bank[indx] = agg_pred.detach().clone()
 
     max_iter = args.max_epoch * len(dset_loaders["target"])
@@ -224,14 +223,14 @@ def train_target(args, summary):
         # lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
 
         inputs_target = inputs_target.cuda()
-        agg_pred = None
-        alpha = netQ(eye)
+        alpha = netQ(eye).cpu()
+        outputs_all = torch.randn(num_srcs, inputs_target.size(0), args.class_num)
         for model_id, (netF, oldC) in enumerate(zip(netF_list, oldC_list)):
             features_test = netF(inputs_target)
             softmax_out = nn.Softmax(dim=1)(oldC(features_test))
-            model_pred = alpha[model_id].repeat(inputs_target.size(0), 1) * softmax_out
-            agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
+            outputs_all[model_id] = softmax_out
             fea_banks[model_id][tar_idx] = F.normalize(features_test).detach().clone().cpu()
+        agg_pred = (alpha.unsqueeze(2) * outputs_all).sum(0)
         score_bank[tar_idx] = agg_pred.detach().clone()
 
         loss = torch.tensor(0.0).cuda()
