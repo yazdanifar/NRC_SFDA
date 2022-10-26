@@ -171,24 +171,25 @@ def train_target(args, summary):
         log_str = 'Model:{}, Initial accuracy on target:{:.2f}%'.format(model_name, acc * 100)
         args.out_file.write(log_str + '\n')
         print(log_str)
-        summary.add_scalar('Model {} Accuracy'.format(model_name), acc * 100, 0)
+        summary.add_scalar('Accuracy / {}'.format(model_name), acc * 100, 0)
     args.out_file.flush()
 
     fea_banks = [torch.randn(num_sample, 256) for _ in range(num_srcs)]
-    score_bank = torch.randn(num_sample, args.class_num)
+    score_bank = torch.randn(num_sample, args.class_num).cuda()
     with torch.no_grad():
         iter_test = iter(loader)
         eye = torch.eye(num_srcs, device='cuda')
         for i in range(len(loader)):
             inputs, _, indx = iter_test.next()
             inputs = inputs.cuda()
-            alpha = netQ(eye).cpu()
-            outputs_all = torch.randn(num_srcs, inputs.size(0), args.class_num)
+            agg_pred = None
+            alpha = netQ(eye)
             for model_id, (netF, oldC) in enumerate(zip(netF_list, oldC_list)):
                 output = netF.forward(inputs)
+                outputs = nn.Softmax(-1)(oldC(output))
                 fea_banks[model_id][indx] = F.normalize(output).detach().clone().cpu()
-                outputs_all[model_id] = nn.Softmax(-1)(oldC(output))
-            agg_pred = (alpha.unsqueeze(2) * outputs_all).sum(0)
+                model_pred = alpha[model_id].repeat(inputs.size(0), 1) * outputs
+                agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
             score_bank[indx] = agg_pred.detach().clone()
 
     max_iter = args.max_epoch * len(dset_loaders["target"])
@@ -223,17 +224,17 @@ def train_target(args, summary):
         # lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
 
         inputs_target = inputs_target.cuda()
-        alpha = netQ(eye).cpu()
-        outputs_all = torch.randn(num_srcs, inputs_target.size(0), args.class_num)
+        agg_pred = None
+        alpha = netQ(eye)
         for model_id, (netF, oldC) in enumerate(zip(netF_list, oldC_list)):
             features_test = netF(inputs_target)
             softmax_out = nn.Softmax(dim=1)(oldC(features_test))
-            outputs_all[model_id] = softmax_out
+            model_pred = alpha[model_id].repeat(inputs_target.size(0), 1) * softmax_out
+            agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
             fea_banks[model_id][tar_idx] = F.normalize(features_test).detach().clone().cpu()
-        agg_pred = (alpha.unsqueeze(2) * outputs_all).sum(0)
         score_bank[tar_idx] = agg_pred.detach().clone()
 
-        loss = torch.tensor(0.0)
+        loss = torch.tensor(0.0).cuda()
         for model_id in range(num_srcs):
             with torch.no_grad():
                 fea_bank = fea_banks[model_id]
@@ -276,13 +277,13 @@ def train_target(args, summary):
             # nn of nn
             output_re = agg_pred.unsqueeze(1).expand(-1, args.K * args.KK, -1)  # batch x KM x C
             const = torch.mean(
-                (F.kl_div(output_re, score_near_kk, reduction='none').sum(-1) * weight_kk).sum(1))
+                (F.kl_div(output_re, score_near_kk, reduction='none').sum(-1) * weight_kk.cuda()).sum(1))
             loss += torch.mean(const)
 
             # nn
             pred_un = agg_pred.unsqueeze(1).expand(-1, args.K, -1)  # batch x K x C
 
-            loss += torch.mean((F.kl_div(pred_un, score_near, reduction='none').sum(-1) * weight).sum(1))
+            loss += torch.mean((F.kl_div(pred_un, score_near, reduction='none').sum(-1) * weight.cuda()).sum(1))
 
             msoftmax = agg_pred.mean(dim=0)
             im_div = torch.sum(msoftmax * torch.log(msoftmax + 1e-5))
@@ -299,7 +300,7 @@ def train_target(args, summary):
             alpha = netQ(eye).detach().clone().cpu()
             for i, al in enumerate(alpha):
                 m = args.source_domains[i].upper()
-                summary.add_scalar('Alpha {}'.format(m), al, iter_num)
+                summary.add_scalar('Alpha / {}'.format(m), al, iter_num)
             # noinspection DuplicatedCode
             accuracies, _ = cal_acc_multi(dset_loaders['test'], netF_list, oldC_list, netQ)
             for model_id, acc in enumerate(accuracies):
@@ -308,7 +309,7 @@ def train_target(args, summary):
                     iter_num, max_iter, model_name, acc * 100)
                 args.out_file.write(log_str + '\n')
                 print(log_str)
-                summary.add_scalar('Model {} Accuracy'.format(model_name), acc * 100, iter_num)
+                summary.add_scalar('Accuracy / {}'.format(model_name), acc * 100, iter_num)
             args.out_file.flush()
 
             for netF, oldC in zip(netF_list, oldC_list):
