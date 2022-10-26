@@ -233,7 +233,7 @@ def train_target(args, summary):
         agg_pred = (alpha.unsqueeze(2) * outputs_all).sum(0)
         score_bank[tar_idx] = agg_pred.detach().clone()
 
-        loss = torch.tensor(0.0).cuda()
+        loss = torch.tensor(0.0)
         for model_id in range(num_srcs):
             with torch.no_grad():
                 fea_bank = fea_banks[model_id]
@@ -276,13 +276,13 @@ def train_target(args, summary):
             # nn of nn
             output_re = agg_pred.unsqueeze(1).expand(-1, args.K * args.KK, -1)  # batch x KM x C
             const = torch.mean(
-                (F.kl_div(output_re, score_near_kk, reduction='none').sum(-1) * weight_kk.cuda()).sum(1))
+                (F.kl_div(output_re, score_near_kk, reduction='none').sum(-1) * weight_kk).sum(1))
             loss += torch.mean(const)
 
             # nn
             pred_un = agg_pred.unsqueeze(1).expand(-1, args.K, -1)  # batch x K x C
 
-            loss += torch.mean((F.kl_div(pred_un, score_near, reduction='none').sum(-1) * weight.cuda()).sum(1))
+            loss += torch.mean((F.kl_div(pred_un, score_near, reduction='none').sum(-1) * weight).sum(1))
 
             msoftmax = agg_pred.mean(dim=0)
             im_div = torch.sum(msoftmax * torch.log(msoftmax + 1e-5))
