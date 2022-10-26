@@ -171,7 +171,7 @@ def train_target(args, summary):
         log_str = 'Model:{}, Initial accuracy on target:{:.2f}%'.format(model_name, acc * 100)
         args.out_file.write(log_str + '\n')
         print(log_str)
-        summary.add_scalar('Accuracy / {}'.format(model_name), acc * 100, 0)
+        summary.add_scalar('Model {} Accuracy'.format(model_name), acc * 100, 0)
     args.out_file.flush()
 
     fea_banks = [torch.randn(num_sample, 256) for _ in range(num_srcs)]
@@ -299,7 +299,7 @@ def train_target(args, summary):
             alpha = netQ(eye).detach().clone().cpu()
             for i, al in enumerate(alpha):
                 m = args.source_domains[i].upper()
-                summary.add_scalar('Alpha / {}'.format(m), al, iter_num)
+                summary.add_scalar('Alpha {}'.format(m), al, iter_num)
             # noinspection DuplicatedCode
             accuracies, _ = cal_acc_multi(dset_loaders['test'], netF_list, oldC_list, netQ)
             for model_id, acc in enumerate(accuracies):
@@ -308,7 +308,7 @@ def train_target(args, summary):
                     iter_num, max_iter, model_name, acc * 100)
                 args.out_file.write(log_str + '\n')
                 print(log_str)
-                summary.add_scalar('Accuracy / {}'.format(model_name), acc * 100, iter_num)
+                summary.add_scalar('Model {} Accuracy'.format(model_name), acc * 100, iter_num)
             args.out_file.flush()
 
             for netF, oldC in zip(netF_list, oldC_list):
