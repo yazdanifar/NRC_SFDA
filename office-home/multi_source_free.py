@@ -316,6 +316,7 @@ def train_target(args, summary):
                 netF.train()
                 oldC.train()
             netQ.train()
+    summary.flush()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
 import argparse
 import os, sys
+
+from torch.utils.tensorboard import SummaryWriter
+
 sys.path.append('./')
 
 import os.path as osp
@@ -146,7 +149,7 @@ def office_load_idx(args):
 
 
 
-def train_target(args):
+def train_target(args, summary):
     dset_loaders = office_load_idx(args)
     ## set base network
 
@@ -336,6 +339,7 @@ def train_target(args):
                 args.dset, iter_num, max_iter, acc1 * 100)
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
+            summary.add_scalar('Accuracy on target', acc1, iter_num)
             print(log_str)
             if acc1 >= acc_init:
                 acc_init = acc1
@@ -345,6 +349,8 @@ def train_target(args):
                 torch.save(best_netF, osp.join(args.output_dir, "F_submitted.pt"))
                 torch.save(best_netC,
                            osp.join(args.output_dir, "C_submitted.pt"))
+
+    summary.flush()
 
     #return mask
 
@@ -419,7 +425,7 @@ if __name__ == "__main__":
     args.out_file = open(osp.join(args.output_dir, args.file + '.txt'), 'w')
     args.out_file.write(print_args(args) + '\n')
     args.out_file.flush()
-    #train_target(args)
-    #if args.file=='cluster':
-    train_target(args)
+    writer_dir = osp.join(args.output_dir, 'logs')
+    summary = SummaryWriter(writer_dir)
+    train_target(args, summary)
     
