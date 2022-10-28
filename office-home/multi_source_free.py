@@ -118,7 +118,7 @@ def train_target(args, summary):
     netF_list = []
     oldC_list = []
     param_list = []
-    source_dirs = [osp.join(current_folder, args.output, 'seed' + str(args.seed), s + '2' + args.target)
+    source_dirs = [osp.join('./runs/source', 'checkpoint', 'seed' + str(args.seed), s)
                    for s in args.source_domains]
     for model_dir in source_dirs:
         netF = network.ResNet_FE().cuda()
@@ -385,16 +385,16 @@ if __name__ == "__main__":
     random.seed(SEED)
     torch.backends.cudnn.deterministic = True
 
-    current_folder = "./"
-    args.output_dir = osp.join(current_folder, args.output, 'seed' + str(args.seed), args.target)
-
-    args.source_domains = [s for s in ['a', 'c', 'p', 'r'] if s != args.target]
-
-    if not osp.exists(args.output_dir):
-        os.system('mkdir -p ' + args.output_dir)
-    args.out_file = open(osp.join(args.output_dir, args.file + '.txt'), 'w')
+    current_folder = "./runs/target"
+    postfix = '_' + args.exp_name if len(args.exp_name) > 0 else ''
+    args.output_dir = osp.join(current_folder, 'checkpoint', 'seed' + str(args.seed), args.dset + postfix)
+    args.log_dir = osp.join(current_folder, 'log', 'seed' + str(args.seed), args.dset + postfix)
+    for directory in [args.output_dir, args.log_dir]:
+        if not osp.exists(directory):
+            os.system('mkdir -p ' + directory)
+    args.out_file = open(osp.join(args.log_dir, 'log.txt'), 'w')
     args.out_file.write(print_args(args) + '\n')
     args.out_file.flush()
-    writer_dir = osp.join(current_folder, args.output, 'seed' + str(args.seed), args.target, 'logs')
-    summary = SummaryWriter(writer_dir)
+    summary = SummaryWriter(args.log_dir)
+    args.source_domains = [s for s in ['a', 'c', 'p', 'r'] if s != args.target]
     train_target(args, summary)

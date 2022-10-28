@@ -37,9 +37,8 @@ def print_args(args):
     return s
 
 
-
 def train_source(args):
-    dset_loaders = office_load(args)
+    dset_loaders = office_load_source(args)
     ## set base network
     netF = network.ResNet_FE().cuda()
     netC = network.feat_classifier(type=args.layer,
@@ -59,11 +58,11 @@ def train_source(args):
         'params': netC.parameters(),
         'lr': args.lr * 10
     }],
-                          momentum=0.9,
-                          weight_decay=5e-4,
-                          nesterov=True)
+        momentum=0.9,
+        weight_decay=5e-4,
+        nesterov=True)
 
-    smax=100
+    smax = 100
 
     acc_init = 0
     for epoch in range(args.max_epoch):
@@ -78,10 +77,10 @@ def train_source(args):
 
             output = netF(inputs_source)
             output = netC(output)
-            
+
             loss = CrossEntropyLabelSmooth(
                 num_classes=args.class_num, epsilon=args.smooth)(
-                    output, labels_source)
+                output, labels_source)
 
             optimizer.zero_grad()
             loss.backward()
@@ -89,8 +88,8 @@ def train_source(args):
 
         netF.eval()
         netC.eval()
-        acc_s_tr, _ = cal_acc_(dset_loaders['source_te'], netF,netC)
-        #acc_s_te, _ = cal_acc_(dset_loaders['source_te'], netF, netB, netC)
+        acc_s_tr, _ = cal_acc_(dset_loaders['source_te'], netF, netC)
+        # acc_s_te, _ = cal_acc_(dset_loaders['source_te'], netF, netB, netC)
         log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(
             args.dset, epoch + 1, args.max_epoch, acc_s_tr * 100)
         args.out_file.write(log_str + '\n')
@@ -103,30 +102,6 @@ def train_source(args):
             best_netC = netC.state_dict()
     torch.save(best_netF, osp.join(args.output_dir, "source_F.pt"))
     torch.save(best_netC, osp.join(args.output_dir, "source_C.pt"))
-
-
-
-
-def test_target(args):
-    dset_loaders = office_load(args)
-    ## set base network
-    netF = network.ResNet_FE().cuda()
-    netC = network.feat_classifier(type=args.layer,
-                                   class_num=args.class_num,
-                                   bottleneck_dim=args.bottleneck).cuda()
-    args.modelpath = args.output_dir + '/source_F.pt'
-    netF.load_state_dict(torch.load(args.modelpath))
-    args.modelpath = args.output_dir + '/source_C.pt'
-    netC.load_state_dict(torch.load(args.modelpath))
-    netF.eval()
-    netC.eval()
-
-    acc, _ = cal_acc_(dset_loaders['test'], netF, netC)
-    log_str = 'Task: {}, Accuracy = {:.2f}%'.format(args.dset, acc * 100)
-    args.out_file.write(log_str + '\n')
-    args.out_file.flush()
-    print(log_str)
-
 
 
 if __name__ == "__main__":
@@ -151,7 +126,7 @@ if __name__ == "__main__":
                         type=int,
                         default=4,
                         help="number of workers")
-    parser.add_argument('--dset', type=str, default='a2c')
+    parser.add_argument('--dset', type=str, default='a')
     parser.add_argument('--lr',
                         type=float,
                         default=0.001,
@@ -169,11 +144,9 @@ if __name__ == "__main__":
                         default="bn",
                         choices=["ori", "bn"])
     parser.add_argument('--smooth', type=float, default=0.1)
-    parser.add_argument('--output', type=str,
-                        default='weight')  
     parser.add_argument('--home', action='store_true')
     args = parser.parse_args()
-    #args.class_num = 31
+    # args.class_num = 31
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -182,41 +155,18 @@ if __name__ == "__main__":
     np.random.seed(SEED)
     random.seed(SEED)
     torch.backends.cudnn.deterministic = True
-    current_folder = "./"
-    args.output_dir = osp.join(current_folder, args.output,
-                               'seed' + str(args.seed), args.dset)
-    if not osp.exists(args.output_dir):
-        os.system('mkdir -p ' + args.output_dir)
-    if not osp.exists(args.output_dir):
-        os.mkdir(args.output_dir)
-
-
-    if args.home:
-        task = ['c', 'a', 'p', 'r']
-    task_s = args.dset.split('2')[0]
-    task.remove(task_s)
-    task_all = [task_s + '2' + i for i in task]
-    for task_sameS in task_all:
-        path_task = os.getcwd() + '/' + args.output + '/seed' + str(
-            args.seed) + '/' + task_sameS
-        if not osp.exists(path_task):
-            os.mkdir(path_task)
+    current_folder = "./runs/source"
+    args.output_dir = osp.join(current_folder, 'checkpoint', 'seed' + str(args.seed), args.dset)
+    args.log_dir = osp.join(current_folder, 'log', 'seed' + str(args.seed), args.dset)
+    for directory in [args.output_dir, args.log_dir]:
+        if not osp.exists(directory):
+            os.system('mkdir -p ' + directory)
+        if not osp.exists(directory):
+            os.mkdir(directory)
 
     if not osp.exists(osp.join(args.output_dir + '/source_F.pt')):
-        args.out_file = open(osp.join(args.output_dir, 'log_src_val.txt'), 'w')
+        args.out_file = open(osp.join(args.log_dir, 'log_src_val.txt'), 'w')
         args.out_file.write(print_args(args) + '\n')
         args.out_file.flush()
         train_source(args)
-        test_target(args)
-
-    file_f = osp.join(args.output_dir + '/source_F.pt')
-    file_c = osp.join(args.output_dir + '/source_C.pt')
-    task.remove(args.dset.split('2')[1])
-    task_remain = [task_s + '2' + i for i in task]
-    for task_sameS in task_remain:
-        path_task = os.getcwd() + '/' + args.output + '/seed' + str(
-            args.seed) + '/' + task_sameS
-        pathF_copy = osp.join(path_task, 'source_F.pt')
-        pathC_copy = osp.join(path_task, 'source_C.pt')
-        shutil.copy(file_f, pathF_copy)
-        shutil.copy(file_c, pathC_copy)
+        # test_target(args)

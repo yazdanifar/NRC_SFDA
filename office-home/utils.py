@@ -263,11 +263,10 @@ class ImageList(Dataset):
         return len(self.imgs)
 
 
-def office_load(args):
+def office_load_source(args):
     train_bs = args.batch_size
     if args.home == True:
-        ss = args.dset.split('2')[0]
-        tt = args.dset.split('2')[1]
+        ss = args.dset
         if ss == 'a':
             s = 'Art'
         elif ss == 'c':
@@ -277,15 +276,6 @@ def office_load(args):
         elif ss == 'r':
             s = 'Real_World'
 
-        if tt == 'a':
-            t = 'Art'
-        elif tt == 'c':
-            t = 'Clipart'
-        elif tt == 'p':
-            t = 'Product'
-        elif tt == 'r':
-            t = 'Real_World'
-
         s_tr, s_ts = './data/office-home/{}.txt'.format(
             s), './data/office-home/{}.txt'.format(s)
 
@@ -293,20 +283,8 @@ def office_load(args):
         s_tr = txt_src
         s_ts = txt_src
 
-        t_tr, t_ts = './data/office-home/{}.txt'.format(
-            t), './data/office-home/{}.txt'.format(t)
-        prep_dict = {}
-        prep_dict['source'] = image_train()
-        prep_dict['target'] = image_target()
-        prep_dict['test'] = image_test()
-        train_source = ImageList(s_tr,
-                                 transform=prep_dict['source'])
-        test_source = ImageList(s_ts,
-                                transform=prep_dict['source'])
-        train_target = ImageList(open(t_tr).readlines(),
-                                 transform=prep_dict['target'])
-        test_target = ImageList(open(t_ts).readlines(),
-                                transform=prep_dict['test'])
+        train_source = ImageList(s_tr, transform=image_train())
+        test_source = ImageList(s_ts, transform=image_train())
 
     dset_loaders = {}
     dset_loaders["source_tr"] = DataLoader(train_source,
@@ -319,6 +297,33 @@ def office_load(args):
                                            shuffle=True,
                                            num_workers=args.worker,
                                            drop_last=False)
+    return dset_loaders
+
+def office_load_target(args):
+    train_bs = args.batch_size
+    if args.home == True:
+        tt = args.dset
+
+        if tt == 'a':
+            t = 'Art'
+        elif tt == 'c':
+            t = 'Clipart'
+        elif tt == 'p':
+            t = 'Product'
+        elif tt == 'r':
+            t = 'Real_World'
+
+        t_tr, t_ts = './data/office-home/{}.txt'.format(
+            t), './data/office-home/{}.txt'.format(t)
+        prep_dict = {}
+        prep_dict['target'] = image_target()
+        prep_dict['test'] = image_test()
+        train_target = ImageList(open(t_tr).readlines(),
+                                 transform=prep_dict['target'])
+        test_target = ImageList(open(t_ts).readlines(),
+                                transform=prep_dict['test'])
+
+    dset_loaders = {}
     dset_loaders["target"] = DataLoader(train_target,
                                         batch_size=train_bs,
                                         shuffle=True,

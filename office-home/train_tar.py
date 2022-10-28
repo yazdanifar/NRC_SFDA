@@ -1,6 +1,7 @@
 import argparse
 import os, sys
 
+from debugpy.common.log import log_dir
 from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append('./')
@@ -158,9 +159,9 @@ def train_target(args, summary):
                                    class_num=args.class_num,
                                    bottleneck_dim=args.bottleneck).cuda()
 
-    modelpath = args.output_dir + '/source_F.pt'
+    modelpath = args.in_dir + '/source_F.pt'
     netF.load_state_dict(torch.load(modelpath))
-    modelpath = args.output_dir + '/source_C.pt'
+    modelpath = args.in_dir + '/source_C.pt'
     oldC.load_state_dict(torch.load(modelpath))
 
     optimizer = optim.SGD(
@@ -347,8 +348,7 @@ def train_target(args, summary):
                 best_netC = oldC.state_dict()
 
                 torch.save(best_netF, osp.join(args.output_dir, "F_submitted.pt"))
-                torch.save(best_netC,
-                           osp.join(args.output_dir, "C_submitted.pt"))
+                torch.save(best_netC, osp.join(args.output_dir, "C_submitted.pt"))
 
     summary.flush()
 
@@ -404,8 +404,7 @@ if __name__ == "__main__":
                         default="bn",
                         choices=["ori", "bn"])
     parser.add_argument('--smooth', type=float, default=0.1)
-    parser.add_argument('--output', type=str, default='weight')  #trainingC_2
-    parser.add_argument('--file', type=str, default='k33_nodecay')
+    parser.add_argument('--exp_name', type=str, default='')
     parser.add_argument('--home', action='store_true')
     args = parser.parse_args()
 
@@ -417,15 +416,17 @@ if __name__ == "__main__":
     random.seed(SEED)
     torch.backends.cudnn.deterministic = True
     
-    current_folder = "./"
-    args.output_dir = osp.join(current_folder, args.output,
-                               'seed' + str(args.seed), args.dset)
-    if not osp.exists(args.output_dir):
-        os.system('mkdir -p ' + args.output_dir)
-    args.out_file = open(osp.join(args.output_dir, args.file + '.txt'), 'w')
+    current_folder = "./runs/target"
+    postfix = '_' + args.exp_name if len(args.exp_name) > 0 else ''
+    args.output_dir = osp.join(current_folder, 'checkpoint', 'seed' + str(args.seed), args.dset + postfix)
+    args.log_dir = osp.join(current_folder, 'log', 'seed' + str(args.seed), args.dset + postfix)
+    args.in_dir = osp.join('./runs/source', 'checkpoint', 'seed' + str(args.seed), args.dset.split('2')[0])
+    for directory in [args.output_dir, args.log_dir]:
+        if not osp.exists(directory):
+            os.system('mkdir -p ' + directory)
+    args.out_file = open(osp.join(args.log_dir, 'log.txt'), 'w')
     args.out_file.write(print_args(args) + '\n')
     args.out_file.flush()
-    writer_dir = osp.join(args.output_dir, 'logs')
-    summary = SummaryWriter(writer_dir)
+    summary = SummaryWriter(args.log_dir)
     train_target(args, summary)
     
