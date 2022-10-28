@@ -235,6 +235,7 @@ def train_target_separated_views(args, summary):
         score_bank[tar_idx] = agg_pred.detach().clone()
 
         loss = torch.tensor(0.0).cuda()
+        view_weight = torch.full_like(alpha, 1 / num_srcs) if args.uniform_views else alpha.detach()
         for model_id in range(num_srcs):
             with torch.no_grad():
                 fea_bank = fea_banks[model_id]
@@ -278,12 +279,12 @@ def train_target_separated_views(args, summary):
             output_re = agg_pred.unsqueeze(1).expand(-1, args.K * args.KK, -1)  # batch x KM x C
             const = torch.mean(
                 (F.kl_div(output_re, score_near_kk, reduction='none').sum(-1) * weight_kk.cuda()).sum(1))
-            loss += alpha[model_id].detach().squeeze() * torch.mean(const)
+            loss += view_weight[model_id].squeeze() * torch.mean(const)
 
             # nn
             pred_un = agg_pred.unsqueeze(1).expand(-1, args.K, -1)  # batch x K x C
 
-            loss += alpha[model_id].detach().squeeze() * \
+            loss += view_weight[model_id].squeeze() * \
                     torch.mean((F.kl_div(pred_un, score_near, reduction='none').sum(-1) * weight.cuda()).sum(1))
 
         msoftmax = agg_pred.mean(dim=0)
@@ -396,7 +397,8 @@ def train_target_shared_views(args, summary):
                 outputs = nn.Softmax(-1)(oldC(output))
                 coeff = alpha[model_id].repeat(inputs.size(0), 1)
                 norm_feat = F.normalize(output)
-                norm_feat = coeff * norm_feat
+                view_weight = torch.full_like(coeff, 1 / num_srcs) if args.uniform_views else coeff
+                norm_feat = view_weight * norm_feat
                 model_pred = coeff * outputs
                 agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
                 agg_feat = norm_feat if agg_feat is None else agg_feat + norm_feat
@@ -443,7 +445,8 @@ def train_target_shared_views(args, summary):
             outputs = nn.Softmax(-1)(oldC(output))
             coeff = alpha[model_id].repeat(inputs_target.size(0), 1)
             norm_feat = F.normalize(output)
-            norm_feat = coeff * norm_feat
+            view_weight = torch.full_like(coeff, 1 / num_srcs) if args.uniform_views else coeff
+            norm_feat = view_weight * norm_feat
             model_pred = coeff * outputs
             agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
             agg_feat = norm_feat if agg_feat is None else agg_feat + norm_feat
@@ -585,6 +588,7 @@ if __name__ == "__main__":
                         default="bn",
                         choices=["ori", "bn"])
     parser.add_argument('--smooth', type=float, default=0.1)
+    parser.add_argument('--uniform_views', type=bool, default=False)
     parser.add_argument('--exp_name', type=str, default='')  # trainingC_2
     parser.add_argument('--file', type=str, default='log')
     parser.add_argument('--home', action='store_true')
