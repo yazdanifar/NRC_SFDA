@@ -442,7 +442,7 @@ def train_target_shared_views(args, summary):
             output = netF.forward(inputs_target)
             outputs = nn.Softmax(-1)(oldC(output))
             coeff = alpha[model_id].repeat(inputs_target.size(0), 1)
-            norm_feat = F.normalize(output).detach()
+            norm_feat = F.normalize(output)
             norm_feat = coeff * norm_feat
             model_pred = coeff * outputs
             agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
