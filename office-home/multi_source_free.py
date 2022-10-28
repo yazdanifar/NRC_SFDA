@@ -112,7 +112,7 @@ def office_load_idx(args):
     return dset_loaders
 
 
-def train_target(args, summary):
+def train_target_separated_views(args, summary):
     dset_loaders = office_load_idx(args)
     ## set base networks
     netF_list = []
@@ -318,6 +318,215 @@ def train_target(args, summary):
             netQ.train()
     summary.flush()
 
+def train_target_shared_views(args, summary):
+    dset_loaders = office_load_idx(args)
+    ## set base networks
+    netF_list = []
+    oldC_list = []
+    param_list = []
+    source_dirs = [osp.join('./runs/source', 'checkpoint', 'seed' + str(args.seed), s)
+                   for s in args.source_domains]
+    for model_dir in source_dirs:
+        netF = network.ResNet_FE().cuda()
+        oldC = network.feat_classifier(type=args.layer,
+                                       class_num=args.class_num,
+                                       bottleneck_dim=args.bottleneck).cuda()
+
+        modelpath = model_dir + '/source_F.pt'
+        netF.load_state_dict(torch.load(modelpath))
+        modelpath = model_dir + '/source_C.pt'
+        oldC.load_state_dict(torch.load(modelpath))
+        netF_list.append(netF)
+        oldC_list.append(oldC)
+        param_list += [
+                          {
+                              'params': netF.feature_layers.parameters(),
+                              'lr': args.lr * .1  # 1
+                          },
+                          {
+                              'params': netF.bottle.parameters(),
+                              'lr': args.lr * 1  # 10
+                          },
+                          {
+                              'params': netF.bn.parameters(),
+                              'lr': args.lr * 1  # 10
+                          },
+                          {
+                              'params': oldC.parameters(),
+                              'lr': args.lr * 1  # 10
+                          }
+                      ]
+    num_srcs = len(netF_list)
+    netQ = network.SourceQuantizer(num_srcs).cuda()
+    for k, v in netQ.named_parameters():
+        param_list += [{'params': v, 'lr': args.alpha_lr}]
+    optimizer = optim.SGD(param_list, momentum=0.9, weight_decay=5e-4, nesterov=True)
+    optimizer = op_copy(optimizer)
+    loader = dset_loaders["target"]
+    num_sample = len(loader.dataset)
+
+    for netF, oldC in zip(netF_list, oldC_list):
+        netF.eval()
+        oldC.eval()
+    netQ.eval()
+
+    with torch.no_grad():
+        accuracies, _ = cal_acc_multi(dset_loaders["test"], netF_list, oldC_list, netQ)
+    for model_id, acc in enumerate(accuracies):
+        model_name = args.source_domains[model_id].upper() if model_id < num_srcs else 'Agg'
+        log_str = 'Model:{}, Initial accuracy on target:{:.2f}%'.format(model_name, acc * 100)
+        args.out_file.write(log_str + '\n')
+        print(log_str)
+        summary.add_scalar('Accuracy / {}'.format(model_name), acc * 100, 0)
+    args.out_file.flush()
+
+    fea_bank = [torch.randn(num_sample, 256)]
+    score_bank = torch.randn(num_sample, args.class_num).cuda()
+    with torch.no_grad():
+        iter_test = iter(loader)
+        eye = torch.eye(num_srcs, device='cuda')
+        for i in range(len(loader)):
+            inputs, _, indx = iter_test.next()
+            inputs = inputs.cuda()
+            agg_pred = None
+            agg_feat = None
+            alpha = netQ(eye)
+            for model_id, (netF, oldC) in enumerate(zip(netF_list, oldC_list)):
+                output = netF.forward(inputs)
+                outputs = nn.Softmax(-1)(oldC(output))
+                coeff = alpha[model_id].repeat(inputs.size(0), 1)
+                norm_feat = F.normalize(output).detach()
+                norm_feat = coeff * norm_feat
+                model_pred = coeff * outputs
+                agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
+                agg_feat = norm_feat if agg_feat is None else agg_feat + norm_feat
+            score_bank[indx] = agg_pred.detach().clone()
+            fea_bank[indx] = agg_feat.detach().clone().cpu()
+
+    max_iter = args.max_epoch * len(dset_loaders["target"])
+    interval_iter = max_iter // args.interval
+    iter_num = 0
+
+    for netF, oldC in zip(netF_list, oldC_list):
+        netF.train()
+        oldC.train()
+    netQ.train()
+
+    while iter_num < max_iter:
+
+        # comment this if on office-31
+        if iter_num > 0.5 * max_iter:
+            args.K = 5
+            args.KK = 4
+
+        # iter_target = iter(dset_loaders["target"])
+        try:
+            inputs_target, _, tar_idx = iter_target.next()
+        except:
+            iter_target = iter(dset_loaders["target"])
+            inputs_target, _, tar_idx = iter_target.next()
+
+        if inputs_target.size(0) == 1:
+            continue
+
+        iter_num += 1
+
+        # uncomment this if on office-31
+        # lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
+
+        inputs_target = inputs_target.cuda()
+        agg_pred = None
+        agg_feat = None
+        alpha = netQ(eye)
+        for model_id, (netF, oldC) in enumerate(zip(netF_list, oldC_list)):
+            output = netF.forward(inputs_target)
+            outputs = nn.Softmax(-1)(oldC(output))
+            coeff = alpha[model_id].repeat(inputs_target.size(0), 1)
+            norm_feat = F.normalize(output).detach()
+            norm_feat = coeff.detach() * norm_feat
+            model_pred = coeff * outputs
+            agg_pred = model_pred if agg_pred is None else agg_pred + model_pred
+            agg_feat = norm_feat if agg_feat is None else agg_feat + norm_feat
+        score_bank[indx] = agg_pred.detach().clone()
+        fea_bank[indx] = agg_feat.detach().clone().cpu()
+
+        with torch.no_grad():
+            output_f_ = fea_bank[tar_idx]
+            distance = output_f_ @ fea_bank.T
+            _, idx_near = torch.topk(distance,
+                                     dim=-1,
+                                     largest=True,
+                                     k=args.K + 1)
+            idx_near = idx_near[:, 1:]  # batch x K
+            score_near = score_bank[idx_near]  # batch x K x C
+
+            fea_near = fea_bank[idx_near]  # batch x K x num_dim
+            fea_bank_re = fea_bank.unsqueeze(0).expand(fea_near.shape[0], -1, -1)  # batch x n x dim
+            distance_ = torch.bmm(fea_near, fea_bank_re.permute(0, 2, 1))  # batch x K x n
+            _, idx_near_near = torch.topk(
+                distance_, dim=-1, largest=True,
+                k=args.KK + 1)  # M near neighbors for each of above K ones
+            idx_near_near = idx_near_near[:, :, 1:]  # batch x K x M
+            tar_idx_ = tar_idx.unsqueeze(-1).unsqueeze(-1)
+            match = (idx_near_near == tar_idx_).sum(-1).float()  # batch x K
+            weight = torch.where(
+                match > 0., match,
+                torch.ones_like(match).fill_(0.1))  # batch x K
+
+            weight_kk = weight.unsqueeze(-1).expand(-1, -1, args.KK)  # batch x K x M
+
+            # weight_kk[idx_near_near == tar_idx_] = 0
+
+            score_near_kk = score_bank[idx_near_near]  # batch x K x M x C
+            # print(weight_kk.shape)
+            weight_kk = weight_kk.contiguous().view(weight_kk.shape[0],
+                                                    -1)  # batch x KM
+            weight_kk = weight_kk.fill_(0.1)
+            score_near_kk = score_near_kk.contiguous().view(
+                score_near_kk.shape[0], -1, args.class_num)  # batch x KM x C
+
+        # nn of nn
+        output_re = agg_pred.unsqueeze(1).expand(-1, args.K * args.KK, -1)  # batch x KM x C
+        const = torch.mean(
+            (F.kl_div(output_re, score_near_kk, reduction='none').sum(-1) * weight_kk.cuda()).sum(1))
+        loss = torch.mean(const)
+
+        # nn
+        pred_un = agg_pred.unsqueeze(1).expand(-1, args.K, -1)  # batch x K x C
+
+        loss += torch.mean((F.kl_div(pred_un, score_near, reduction='none').sum(-1) * weight.cuda()).sum(1))
+
+        msoftmax = agg_pred.mean(dim=0)
+        im_div = torch.sum(msoftmax * torch.log(msoftmax + 1e-5))
+        loss += im_div
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if iter_num % interval_iter == 0 or iter_num == max_iter:
+            for netF, oldC in zip(netF_list, oldC_list):
+                netF.eval()
+                oldC.eval()
+            netQ.eval()
+            alpha = netQ(eye).detach().clone().cpu()
+            for i, al in enumerate(alpha):
+                m = args.source_domains[i].upper()
+                summary.add_scalar('Alpha / {}'.format(m), al, iter_num)
+            # noinspection DuplicatedCode
+            accuracies, _ = cal_acc_multi(dset_loaders['test'], netF_list, oldC_list, netQ)
+            for model_id, acc in enumerate(accuracies):
+                model_name = args.source_domains[model_id].upper() if model_id < num_srcs else 'Agg'
+                log_str = 'Iter:{}/{}; Model:{}, Accuracy on target:{:.2f}%'.format(
+                    iter_num, max_iter, model_name, acc * 100)
+                args.out_file.write(log_str + '\n')
+                print(log_str)
+                summary.add_scalar('Accuracy / {}'.format(model_name), acc * 100, iter_num)
+            args.out_file.flush()
+
+            for netF, oldC in zip(netF_list, oldC_list):
+                netF.train()
+                oldC.train()
+            netQ.train()
+    summary.flush()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -327,6 +536,10 @@ if __name__ == "__main__":
                         nargs='?',
                         default='0',
                         help="device id to run")
+    parser.add_argument('--separate_views',
+                        type=bool,
+                        default=True,
+                        help="to sum different views or not")
     parser.add_argument('--s', type=int, default=0, help="source")
     parser.add_argument('--t', type=int, default=1, help="target")
     parser.add_argument('--max_epoch',
@@ -397,4 +610,7 @@ if __name__ == "__main__":
     args.out_file.flush()
     summary = SummaryWriter(args.log_dir)
     args.source_domains = [s for s in ['a', 'c', 'p', 'r'] if s != args.target]
-    train_target(args, summary)
+    if args.separate_views:
+        train_target_separated_views(args, summary)
+    else:
+        train_target_shared_views(args, summary)
