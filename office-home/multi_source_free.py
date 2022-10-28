@@ -585,7 +585,7 @@ if __name__ == "__main__":
                         default="bn",
                         choices=["ori", "bn"])
     parser.add_argument('--smooth', type=float, default=0.1)
-    parser.add_argument('--output', type=str, default='weight')  # trainingC_2
+    parser.add_argument('--exp_name', type=str, default='')  # trainingC_2
     parser.add_argument('--file', type=str, default='log')
     parser.add_argument('--home', action='store_true')
     args = parser.parse_args()
