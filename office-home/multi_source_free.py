@@ -600,8 +600,8 @@ if __name__ == "__main__":
 
     current_folder = "./runs/target"
     postfix = '_' + args.exp_name if len(args.exp_name) > 0 else ''
-    args.output_dir = osp.join(current_folder, 'checkpoint', 'seed' + str(args.seed), args.dset + postfix)
-    args.log_dir = osp.join(current_folder, 'log', 'seed' + str(args.seed), args.dset + postfix)
+    args.output_dir = osp.join(current_folder, 'checkpoint', 'seed' + str(args.seed), args.target + postfix)
+    args.log_dir = osp.join(current_folder, 'log', 'seed' + str(args.seed), args.target + postfix)
     for directory in [args.output_dir, args.log_dir]:
         if not osp.exists(directory):
             os.system('mkdir -p ' + directory)
