@@ -1,16 +1,15 @@
 import argparse
-import os, sys
+import os
 import os.path as osp
-import torchvision
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import transforms
-import network, loss
+import network
 from torch.utils.data import DataLoader
 from data_list import ImageList, ImageList_idx
-import random, pdb, math, copy
+import random
 from sklearn.metrics import confusion_matrix
 import torch.nn.functional as F
 
