@@ -6,19 +6,10 @@ from torch.utils.tensorboard import SummaryWriter
 sys.path.append('./')
 
 import os.path as osp
-import torchvision
-import numpy as np
-import torch
-import torch.nn as nn
 import torch.optim as optim
-from torchvision import transforms
 import network
-from torch.utils.data import DataLoader
-import random, pdb, math, copy
-from tqdm import tqdm
-import pickle
+import random
 from utils import *
-from torch import autograd
 
 
 def print_args(args):

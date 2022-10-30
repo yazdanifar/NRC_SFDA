@@ -1,33 +1,10 @@
 import argparse
-import os, sys
-import os.path as osp
-import torchvision
-import numpy as np
-import torch
-import torch.nn as nn
+import os
 import torch.optim as optim
-from torchvision import transforms
 import network
-from torch.utils.data import DataLoader
-import random, pdb, math, copy
-from tqdm import tqdm
-import pickle
+import random
 from utils import *
-from torch import autograd
-import shutil
 
-import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
-from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.mplot3d import proj3d
-from sklearn.manifold import TSNE
-import pickle as pkl
-import matplotlib.cm as cm
-import collections
-import matplotlib.pyplot as plt
-from matplotlib.ticker import NullFormatter
-from sklearn import manifold, datasets
-from mpl_toolkits.mplot3d import Axes3D
 
 
 def print_args(args):

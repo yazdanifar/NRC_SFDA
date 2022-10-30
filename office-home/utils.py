@@ -1,16 +1,11 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from scipy.spatial.distance import cdist
 import torchvision
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from PIL import Image
 from torch.utils.data import Dataset
-import torch.nn.functional as F
-from sklearn.metrics import confusion_matrix
-import os.path as osp
-from sklearn.neighbors import KNeighborsClassifier
 
 
 class FocalLabelSmooth(nn.Module):
