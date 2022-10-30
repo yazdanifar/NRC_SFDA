@@ -5,6 +5,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append('./')
 
+import os.path as osp
 import torch.optim as optim
 import network
 import random
